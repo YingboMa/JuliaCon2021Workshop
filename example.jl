@@ -44,7 +44,11 @@ Symbolics.scalarize(sum(xs))
 # array valued symbolics are still at its early stage
 sum(collect(xs))
 
-# Now, it's a good time to switch gear and 
+# Now, it's a good time to switch gear and demonstrate Symbolics.jl workflow in
+# a more realistic use case.
+#
+# First, let's code up the Rosenbrock function. It's a very common test function
+# for optimization solvers.
 # Google Rosenbrock function;
 rosenbrock(xs) = sum(1:length(xs)-1) do i
     100*(xs[i+1] - xs[i]^2)^2 + (1 - xs[i])^2
@@ -53,6 +57,7 @@ end
 N = 100
 xs = ones(N)
 rosenbrock(xs)
+rosenbrock(xs + 1e-6randn(N))
 
 # Symbolic tracing
 @variables xs[1:N]
@@ -77,6 +82,7 @@ using BenchmarkTools
 @benchmark(Symbolics.sparsehessian($rxs, $xs)) # a little bit faster
 @benchmark(Symbolics.hessian_sparsity($rxs, $xs)) # a little bit faster
 
+build_function(grad, xs)
 foop, fip = build_function(grad, xs, expression=Val{false});
 aa = rand(N);
 out = similar(aa);
@@ -86,10 +92,20 @@ using ForwardDiff # varify it via AD
 out ≈ ForwardDiff.gradient(rosenbrock, aa)
 
 # Jacobian
-hoop, hip = build_function(sparse_hes, xs, expression=Val{false});
-hoop(aa) ≈ ForwardDiff.hessian(rosenbrock, aa)
+hoop, hip = build_function(sparse_hes, xs, checkbounds=true, expression=Val{false});
+# Note that since the inplace function fills the non-zero entries directly. We
+# have to make sure that the array that it writes to must have the same sparisty
+# pattern.
+hess_out = similar(sparse_hes, Float64)
+hip(hess_out, aa)
+hoop(aa) ≈ hess_out
+hess_out ≈ ForwardDiff.hessian(rosenbrock, aa)
 
-
+# Now, let's use the Jacobian sparisty tooling to acclerate the numerical
+# solve of a 2D diffusion-reaction PDE.
+#
+# To find a nice testing example, of course, we go to Hairer's textbook on stiff
+# solvers. II, Pg. 151
 using OrdinaryDiffEq, IfElse
 brusselator_f(x, y, t) = IfElse.ifelse((((x-0.3)^2 + (y-0.6)^2) <= 0.1^2) & (t >= 1.1), 5.0, 0.0)
 limit(a, N) = a == N+1 ? 1 : a == 0 ? N : a
